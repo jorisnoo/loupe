@@ -185,3 +185,7 @@ library after having given [my PHP crawler library][Escargot] a French name :-)
 [Blog_Repository]: ./docs/blog_post.md
 [MeiliSearch_Movies]: https://www.meilisearch.com/movies.json
 [Performance_Topic]: https://github.com/loupe-php/loupe/discussions/17
+
+## Maintainer releases
+
+See [RELEASING.md](RELEASING.md) for versioning, changelog entries and the release command.
