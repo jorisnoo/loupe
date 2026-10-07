@@ -22,6 +22,10 @@ $searchParameters = \Loupe\Loupe\SearchParameters::create()
 
 This will return all documents matching `Hello` or `World` while considering the [typo tolerance settings][Config].
 
+English and German compound words in indexed documents are automatically decomposed. For example, a query for `brush`
+also matches `toothbrush`, and `Vertrag` matches `Wartungsvertrag`. See the
+[tokenizer documentation](./tokenizer.md#term-decomposition) for details and limitations.
+
 Loupe also supports phrase search, so if you want to query for documents containing exactly `Hello World`, you'll 
 have to use `"` to encapsulate your query:
 
@@ -41,6 +45,21 @@ $searchParameters = \Loupe\Loupe\SearchParameters::create()
 
 Hint: Note that your query is stripped if it's very long. See the section about [maximum query tokens in the 
 configuration settings][Config].
+
+## Matching strategy
+
+By default, a search will match any documents that match at least one of the query terms. You can change this behavior by configuring a matching strategy.
+
+`any`: A document is returned if it matches at least one of the query terms. This is the default matching strategy.
+
+`all`: A document is only returned if it matches all query terms.
+
+```php
+$searchParameters = \Loupe\Loupe\SearchParameters::create()
+    ->withQuery('all of these words must match')
+    ->withMatchingStrategy('all')
+;
+```
 
 ## Attributes to receive
 
@@ -71,6 +90,7 @@ with Loupe either. You can combine your filters with `AND` and `OR`, nest them t
 following operators:
 
 * `=`
+* `!=`
 * `>`
 * `<`
 * `>=`
@@ -134,6 +154,16 @@ $searchParameters = SearchParameters::create()
     ->withQuery('...')
     ->withFilter('...')
     ->withFacets(['departments', 'age'])
+;
+```
+
+By default, Loupe returns at most `100` facet values per facet attribute. You can change this limit with
+`maxValuesPerFacet`:
+
+```php
+$searchParameters = SearchParameters::create()
+    ->withFacets(['departments'])
+    ->withMaxValuesPerFacet(250)
 ;
 ```
 
@@ -366,7 +396,7 @@ $results = [
 
 ## Context cropping
 
-Loupe can crop selected attributes to a certain length around the search terms. The is useful to
+Loupe can crop selected attributes to a certain length around the search terms. It is useful to
 show as much context as possible around matched words when displaying results.
 
 ```php
@@ -413,6 +443,29 @@ Crop boundaries are marked with an ellipsis `…` character by default. You can 
 ```php
 $searchParameters = \Loupe\Loupe\SearchParameters::create()
     ->withAttributesToCrop(['title', 'summary'], cropMarker: '∞');
+```
+
+Loupe emits one fragment per match cluster. By default, at most `5` fragments are returned per attribute. Fragments are
+always emitted in document order, i.e. in the order they appear in the attribute.
+
+You can return a different number of fragments with `cropMaxFragments`. For example, to return at most three:
+
+```php
+$searchParameters = \Loupe\Loupe\SearchParameters::create()
+    ->withAttributesToCrop(['title', 'summary'], cropMaxFragments: 3);
+```
+
+When there are more match clusters than `cropMaxFragments`, Loupe has to decide which ones to keep. By default
+(`prioritizeMatches: true`) it keeps the highest-quality fragments — the crop windows with the highest density and the
+most distinct matches — so that the most relevant context is shown. Note that this only affects *which* fragments are
+selected; the selected fragments are still emitted in document order, not sorted by quality.
+
+Set `prioritizeMatches` to `false` to instead keep the first fragments in document order, discarding any beyond
+`cropMaxFragments`.
+
+```php
+$searchParameters = \Loupe\Loupe\SearchParameters::create()
+    ->withAttributesToCrop(['title', 'summary'], prioritizeMatches: false);
 ```
 
 ## Stop words

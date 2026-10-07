@@ -6,8 +6,7 @@ namespace Loupe\Loupe\Internal\Driver;
 
 use Doctrine\DBAL\Driver\AbstractSQLiteDriver;
 use Doctrine\DBAL\Driver\PDO\Connection;
-use PDO;
-use SensitiveParameter;
+use Pdo\Sqlite;
 
 /**
  * Forces \Pdo\Sqlite when available so createFunction() is reliably exposed.
@@ -18,13 +17,13 @@ use SensitiveParameter;
  */
 final class SqliteDriver extends AbstractSQLiteDriver
 {
-    public function connect(#[SensitiveParameter] array $params): Connection
+    public function connect(#[\SensitiveParameter] array $params): Connection
     {
-        $dsn = 'sqlite:' . ($params['path'] ?? (! empty($params['memory']) ? ':memory:' : ''));
+        $dsn = 'sqlite:'.($params['path'] ?? (!empty($params['memory']) ? ':memory:' : ''));
 
-        $pdo = class_exists(\Pdo\Sqlite::class)
-            ? \Pdo\Sqlite::connect($dsn)
-            : new PDO($dsn);
+        $pdo = class_exists(Sqlite::class)
+            ? Sqlite::connect($dsn)
+            : new \PDO($dsn);
 
         return new Connection($pdo);
     }

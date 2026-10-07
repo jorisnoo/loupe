@@ -20,9 +20,13 @@ final class LoupeFactory implements LoupeFactoryInterface
 {
     public const SQLITE_BUSY_TIMEOUT = 5000;
 
+    public const SQLITE_INDEX_CACHE_SIZE = 4000;
+
+    public const SQLITE_SEARCH_CACHE_SIZE = 32000;
+
     public function create(string $dataDir, Configuration $configuration): Loupe
     {
-        if ($dataDir === '') {
+        if ('' === $dataDir) {
             throw InvalidConfigurationException::becauseRequiredDataDirMissing();
         }
 
@@ -37,7 +41,7 @@ final class LoupeFactory implements LoupeFactoryInterface
         return $this->createFromConnectionPool(
             $this->createConnectionPool($configuration, $dataDir),
             $configuration,
-            $dataDir
+            $dataDir,
         );
     }
 
@@ -45,15 +49,15 @@ final class LoupeFactory implements LoupeFactoryInterface
     {
         return $this->createFromConnectionPool(
             $this->createConnectionPool($configuration),
-            $configuration
+            $configuration,
         );
     }
 
-    private function createConnection(string $connectionName, Configuration $configuration, ?string $databasePath = null): Connection
+    private function createConnection(string $connectionName, Configuration $configuration, string|null $databasePath = null): Connection
     {
         $params = ['driverClass' => SqliteDriver::class];
 
-        if ($databasePath === null) {
+        if (null === $databasePath) {
             $params['memory'] = true;
         } else {
             $params['path'] = $databasePath;
@@ -61,32 +65,31 @@ final class LoupeFactory implements LoupeFactoryInterface
 
         return DriverManager::getConnection(
             $params,
-            $this->getDbalConfiguration($connectionName, $configuration)
+            $this->getDbalConfiguration($connectionName, $configuration),
         );
     }
 
-    private function createConnectionPool(Configuration $configuration, ?string $dataDir = null): ConnectionPool
+    private function createConnectionPool(Configuration $configuration, string|null $dataDir = null): ConnectionPool
     {
-        if ($dataDir === null) {
+        if (null === $dataDir) {
             $loupeConnection = $this->createConnection('loupe', $configuration);
             $ticketsConnection = $this->createConnection('tickets', $configuration);
         } else {
-            $loupeConnection = $this->createConnection('loupe', $configuration, $dataDir . '/loupe.db');
-            $ticketsConnection = $this->createConnection('loupe', $configuration, $dataDir . '/tickets.db');
-
+            $loupeConnection = $this->createConnection('loupe', $configuration, $dataDir.'/loupe.db');
+            $ticketsConnection = $this->createConnection('loupe', $configuration, $dataDir.'/tickets.db');
         }
 
         return new ConnectionPool($loupeConnection, $ticketsConnection);
     }
 
-    private function createFromConnectionPool(ConnectionPool $connectionPool, Configuration $configuration, ?string $dataDir = null): Loupe
+    private function createFromConnectionPool(ConnectionPool $connectionPool, Configuration $configuration, string|null $dataDir = null): Loupe
     {
         // Always decorate the logger with our process name for easier tracking in concurrent environments
         $logger = $this->prefixLoggerWithProcessName($configuration, $configuration->getLogger() ?? new NullLogger());
 
         $engine = new Engine($connectionPool, $configuration, $logger, $dataDir);
 
-        if ($dataDir !== null) {
+        if (null !== $dataDir) {
             $this->optimizeSQLiteDatabase($connectionPool->loupeConnection);
             $this->optimizeSQLiteDatabase($connectionPool->ticketConnection);
         }
@@ -102,11 +105,10 @@ final class LoupeFactory implements LoupeFactoryInterface
         $config = new DbalConfiguration();
         $middlewares = [];
 
-        if ($configuration->getLogger() !== null) {
+        if (null !== ($logger = $configuration->getLogger())) {
             // Prefix logger with connection and process names
-            $logger = $configuration->getLogger();
             $logger = $this->prefixLoggerWithProcessName($configuration, $logger);
-            $logger = new PrefixDecoratedLogger('db-' . $connectionName, $logger);
+            $logger = new PrefixDecoratedLogger('db-'.$connectionName, $logger);
 
             // Prefix logs with connection name
             $middlewares[] = new Middleware($logger);
@@ -120,14 +122,14 @@ final class LoupeFactory implements LoupeFactoryInterface
     private function optimizeSQLiteConnection(Connection $connection): void
     {
         $optimizations = [
-            // Set cache size to 20MB to reduce disk i/o
-            'PRAGMA cache_size = -20000',
+            // Set cache size to 32MB to reduce disk i/o while searching
+            'PRAGMA cache_size = -'.self::SQLITE_SEARCH_CACHE_SIZE,
             // Set mmap size to 32MB to avoid i/o for database reads
             'PRAGMA mmap_size = 33554432',
             // Store temporary tables in memory instead of on disk
             'PRAGMA temp_store = MEMORY',
             // Set timeout to 5 seconds to avoid locking issues
-            'PRAGMA busy_timeout = ' . self::SQLITE_BUSY_TIMEOUT,
+            'PRAGMA busy_timeout = '.self::SQLITE_BUSY_TIMEOUT,
             // Loupe is a search index. It contains volatile data by definition so if there's a power outage
             // that could leave our database in a corrupt state, we don't care. It can always be re-built by
             // a full re-index. Hence, we set synchronous to OFF which reduces disk writes dramatically.
@@ -167,7 +169,7 @@ final class LoupeFactory implements LoupeFactoryInterface
     {
         return new PrefixDecoratedLogger(
             $configuration->getProcessName(),
-            $logger
+            $logger,
         );
     }
 }

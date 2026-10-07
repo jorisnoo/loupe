@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace Loupe\Loupe;
 
+use Loupe\Loupe\Exception\InvalidSearchParametersException;
 use Loupe\Loupe\Internal\Search\AbstractQueryParameters;
+use Loupe\Loupe\Internal\Search\MatchingStrategy;
+use Loupe\Loupe\Internal\Search\Searcher;
 
 final class SearchParameters extends AbstractQueryParameters
 {
     /**
-     * @var array<string,int>
+     * @var array<string, int>
      */
     private array $attributesToCrop = [];
 
@@ -22,7 +25,9 @@ final class SearchParameters extends AbstractQueryParameters
 
     private string $cropMarker = '…';
 
-    private ?string $distinct = null;
+    private int $cropMaxFragments = 5;
+
+    private string|null $distinct = null;
 
     /**
      * @var array<string>
@@ -33,6 +38,12 @@ final class SearchParameters extends AbstractQueryParameters
 
     private string $highlightStartTag = '<em>';
 
+    private MatchingStrategy $matchingStrategy = MatchingStrategy::Any;
+
+    private int $maxValuesPerFacet = 100;
+
+    private bool $prioritizeMatches = true;
+
     private float $rankingScoreThreshold = 0.0;
 
     private bool $showMatchesPosition = false;
@@ -42,7 +53,9 @@ final class SearchParameters extends AbstractQueryParameters
     /**
      * @var array<string>
      */
-    private array $sort = [Internal\Search\Searcher::RELEVANCE_ALIAS . ':desc'];
+    private array $sort = [
+        Searcher::RELEVANCE_ALIAS.':desc',
+    ];
 
     public static function create(): static
     {
@@ -51,7 +64,11 @@ final class SearchParameters extends AbstractQueryParameters
 
     /**
      * @param array{
-     *     attributesToCrop?: array<string>|array<string,int>,
+     *     attributesToCrop?: array<string>|array<string, int>,
+     *     cropLength?: int,
+     *     cropMarker?: string,
+     *     cropMaxFragments?: int,
+     *     prioritizeMatches?: bool,
      *     attributesToHighlight?: array<string>,
      *     attributesToRetrieve?: array<string>,
      *     attributesToSearchOn?: array<string>,
@@ -63,6 +80,8 @@ final class SearchParameters extends AbstractQueryParameters
      *     page?: ?int,
      *     offset?: int,
      *     limit?: int,
+     *     matchingStrategy?: string,
+     *     maxValuesPerFacet?: int,
      *     query?: string,
      *     rankingScoreThreshold?: float,
      *     showMatchesPosition?: bool,
@@ -80,6 +99,8 @@ final class SearchParameters extends AbstractQueryParameters
                 $data['attributesToCrop'],
                 $data['cropLength'] ?? 50,
                 $data['cropMarker'] ?? '…',
+                $data['cropMaxFragments'] ?? 5,
+                $data['prioritizeMatches'] ?? true,
             );
         }
 
@@ -93,6 +114,14 @@ final class SearchParameters extends AbstractQueryParameters
 
         if (isset($data['facets'])) {
             $instance = $instance->withFacets($data['facets']);
+        }
+
+        if (isset($data['matchingStrategy'])) {
+            $instance = $instance->withMatchingStrategy($data['matchingStrategy']);
+        }
+
+        if (isset($data['maxValuesPerFacet'])) {
+            $instance = $instance->withMaxValuesPerFacet($data['maxValuesPerFacet']);
         }
 
         if (isset($data['rankingScoreThreshold'])) {
@@ -119,7 +148,7 @@ final class SearchParameters extends AbstractQueryParameters
     }
 
     /**
-     * @return array<string,int>
+     * @return array<string, int>
      */
     public function getAttributesToCrop(): array
     {
@@ -144,7 +173,12 @@ final class SearchParameters extends AbstractQueryParameters
         return $this->cropMarker;
     }
 
-    public function getDistinct(): ?string
+    public function getCropMaxFragments(): int
+    {
+        return $this->cropMaxFragments;
+    }
+
+    public function getDistinct(): string|null
     {
         return $this->distinct;
     }
@@ -168,6 +202,8 @@ final class SearchParameters extends AbstractQueryParameters
         $hash[] = json_encode($this->getAttributesToHighlight());
         $hash[] = json_encode($this->getCropLength());
         $hash[] = json_encode($this->getCropMarker());
+        $hash[] = json_encode($this->getCropMaxFragments());
+        $hash[] = json_encode($this->shouldPrioritizeMatches());
         $hash[] = json_encode($this->getHighlightEndTag());
         $hash[] = json_encode($this->getHighlightStartTag());
         $hash[] = json_encode($this->getAttributesToRetrieve());
@@ -176,6 +212,8 @@ final class SearchParameters extends AbstractQueryParameters
         $hash[] = json_encode($this->getHitsPerPage());
         $hash[] = json_encode($this->getPage());
         $hash[] = json_encode($this->getLimit());
+        $hash[] = json_encode($this->getMatchingStrategy());
+        $hash[] = json_encode($this->getMaxValuesPerFacet());
         $hash[] = json_encode($this->getOffset());
         $hash[] = json_encode($this->getQuery());
         $hash[] = json_encode($this->showMatchesPosition());
@@ -194,6 +232,16 @@ final class SearchParameters extends AbstractQueryParameters
         return $this->highlightStartTag;
     }
 
+    public function getMatchingStrategy(): string
+    {
+        return $this->matchingStrategy->value;
+    }
+
+    public function getMaxValuesPerFacet(): int
+    {
+        return $this->maxValuesPerFacet;
+    }
+
     public function getRankingScoreThreshold(): float
     {
         return $this->rankingScoreThreshold;
@@ -205,6 +253,11 @@ final class SearchParameters extends AbstractQueryParameters
     public function getSort(): array
     {
         return $this->sort;
+    }
+
+    public function shouldPrioritizeMatches(): bool
+    {
+        return $this->prioritizeMatches;
     }
 
     public function showMatchesPosition(): bool
@@ -219,11 +272,13 @@ final class SearchParameters extends AbstractQueryParameters
 
     /**
      * @return array{
-     *     attributesToCrop: array<string,int>,
+     *     attributesToCrop: array<string, int>,
      *     attributesToHighlight: array<string>,
      *     facets: array<string>,
      *     cropLength: int,
      *     cropMarker: string,
+     *     cropMaxFragments: int,
+     *     prioritizeMatches: bool,
      *     filter: string,
      *     highlightEndTag: string,
      *     highlightStartTag: string,
@@ -231,6 +286,8 @@ final class SearchParameters extends AbstractQueryParameters
      *     page: ?int,
      *     offset: int,
      *     limit: int,
+     *     matchingStrategy: string,
+     *     maxValuesPerFacet: int,
      *     query: string,
      *     attributesToRetrieve: array<string>,
      *     attributesToSearchOn: array<string>,
@@ -249,8 +306,12 @@ final class SearchParameters extends AbstractQueryParameters
             'facets' => $this->facets,
             'cropLength' => $this->cropLength,
             'cropMarker' => $this->cropMarker,
+            'cropMaxFragments' => $this->cropMaxFragments,
+            'prioritizeMatches' => $this->prioritizeMatches,
             'highlightEndTag' => $this->highlightEndTag,
             'highlightStartTag' => $this->highlightStartTag,
+            'matchingStrategy' => $this->getMatchingStrategy(),
+            'maxValuesPerFacet' => $this->maxValuesPerFacet,
             'rankingScoreThreshold' => $this->rankingScoreThreshold,
             'showMatchesPosition' => $this->showMatchesPosition,
             'showRankingScore' => $this->showRankingScore,
@@ -260,16 +321,14 @@ final class SearchParameters extends AbstractQueryParameters
     }
 
     /**
-     * @param array<string>|array<string,int> $attributesToCrop
+     * @param array<string>|array<string, int> $attributesToCrop
      */
-    public function withAttributesToCrop(
-        array $attributesToCrop,
-        int $cropLength = 50,
-        string $cropMarker = '…',
-    ): self {
+    public function withAttributesToCrop(array $attributesToCrop, int $cropLength = 50, string $cropMarker = '…', int $cropMaxFragments = 5, bool $prioritizeMatches = true): self
+    {
         $clone = clone $this;
 
         $attributes = [];
+
         foreach ($attributesToCrop as $key => $attribute) {
             if (\is_string($key) && \is_int($attribute)) {
                 $attributes[$key] = $attribute;
@@ -283,6 +342,8 @@ final class SearchParameters extends AbstractQueryParameters
         $clone->attributesToCrop = $attributes;
         $clone->cropMarker = $cropMarker;
         $clone->cropLength = $cropLength;
+        $clone->cropMaxFragments = $cropMaxFragments;
+        $clone->prioritizeMatches = $prioritizeMatches;
 
         return $clone;
     }
@@ -290,11 +351,8 @@ final class SearchParameters extends AbstractQueryParameters
     /**
      * @param array<string> $attributesToHighlight
      */
-    public function withAttributesToHighlight(
-        array $attributesToHighlight,
-        string $highlightStartTag = '<em>',
-        string $highlightEndTag = '</em>',
-    ): self {
+    public function withAttributesToHighlight(array $attributesToHighlight, string $highlightStartTag = '<em>', string $highlightEndTag = '</em>'): self
+    {
         sort($attributesToHighlight);
 
         $clone = clone $this;
@@ -305,10 +363,11 @@ final class SearchParameters extends AbstractQueryParameters
         return $clone;
     }
 
-    public function withDistinct(?string $distinct): self
+    public function withDistinct(string|null $distinct): self
     {
         $clone = clone $this;
         $clone->distinct = $distinct;
+
         return $clone;
     }
 
@@ -319,6 +378,32 @@ final class SearchParameters extends AbstractQueryParameters
     {
         $clone = clone $this;
         $clone->facets = $facets;
+
+        return $clone;
+    }
+
+    public function withMatchingStrategy(string $matchingStrategy): self
+    {
+        $strategy = MatchingStrategy::tryFrom($matchingStrategy);
+
+        if (null === $strategy) {
+            throw InvalidSearchParametersException::invalidMatchingStrategy($matchingStrategy, array_column(MatchingStrategy::cases(), 'value'));
+        }
+
+        $clone = clone $this;
+        $clone->matchingStrategy = $strategy;
+
+        return $clone;
+    }
+
+    public function withMaxValuesPerFacet(int $maxValuesPerFacet): self
+    {
+        if ($maxValuesPerFacet < 1) {
+            throw InvalidSearchParametersException::maxValuesPerFacetMustBeGreaterThanZero();
+        }
+
+        $clone = clone $this;
+        $clone->maxValuesPerFacet = $maxValuesPerFacet;
 
         return $clone;
     }

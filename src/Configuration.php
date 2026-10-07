@@ -6,7 +6,9 @@ namespace Loupe\Loupe;
 
 use Loupe\Loupe\Config\TypoTolerance;
 use Loupe\Loupe\Exception\InvalidConfigurationException;
+use Loupe\Loupe\Internal\Cache\ApcuCachePool;
 use Loupe\Loupe\Internal\Search\Sorting\Relevance;
+use Psr\Cache\CacheItemPoolInterface;
 use Psr\Log\LoggerInterface;
 
 final class Configuration
@@ -34,7 +36,7 @@ final class Configuration
      */
     private array $languages = [];
 
-    private ?LoggerInterface $logger = null;
+    private LoggerInterface|null $logger = null;
 
     private int $maxQueryTokens = 10;
 
@@ -49,6 +51,8 @@ final class Configuration
      * dynamically generated.
      */
     private string|null $processName = null;
+
+    private CacheItemPoolInterface|null $queryCache = null;
 
     /**
      * @var array<string>
@@ -86,6 +90,10 @@ final class Configuration
     public function __construct()
     {
         $this->typoTolerance = new TypoTolerance();
+
+        if (\function_exists('apcu_fetch') && \function_exists('apcu_store')) {
+            $this->queryCache = new ApcuCachePool();
+        }
     }
 
     public static function create(): self
@@ -138,11 +146,11 @@ final class Configuration
         }
 
         if (isset($data['maxQueryTokens'])) {
-            $instance = $instance->withMaxQueryTokens((int) $data['maxQueryTokens']);
+            $instance = $instance->withMaxQueryTokens($data['maxQueryTokens']);
         }
 
         if (isset($data['minTokenLengthForPrefixSearch'])) {
-            $instance = $instance->withMinTokenLengthForPrefixSearch((int) $data['minTokenLengthForPrefixSearch']);
+            $instance = $instance->withMinTokenLengthForPrefixSearch($data['minTokenLengthForPrefixSearch']);
         }
 
         if (isset($data['primaryKey'])) {
@@ -198,7 +206,7 @@ final class Configuration
             [$this->getPrimaryKey()],
             $this->getSearchableAttributes(),
             $this->getFilterableAttributes(),
-            $this->getSortableAttributes()
+            $this->getSortableAttributes(),
         ));
     }
 
@@ -223,6 +231,7 @@ final class Configuration
         $hash[] = json_encode($this->getFilterableAttributes());
         $hash[] = json_encode($this->getMaxTotalHits());
         $hash[] = json_encode($this->getSortableAttributes());
+        $hash[] = json_encode($this->getLanguages());
         $hash[] = json_encode($this->getStopWords());
 
         $hash[] = $this->getTypoTolerance()->isDisabled() ? 'disabled' : 'enabled';
@@ -241,7 +250,7 @@ final class Configuration
         return $this->languages;
     }
 
-    public function getLogger(): ?LoggerInterface
+    public function getLogger(): LoggerInterface|null
     {
         return $this->logger;
     }
@@ -268,11 +277,16 @@ final class Configuration
 
     public function getProcessName(): string
     {
-        if ($this->processName === null) {
-            $this->processName = 'process-' . uniqid();
+        if (null === $this->processName) {
+            $this->processName = 'process-'.uniqid();
         }
 
         return $this->processName;
+    }
+
+    public function getQueryCache(): CacheItemPoolInterface|null
+    {
+        return $this->queryCache;
     }
 
     /**
@@ -372,8 +386,9 @@ final class Configuration
 
     public static function validateAttributeName(string $name): void
     {
-        if (\strlen($name) > self::MAX_ATTRIBUTE_NAME_LENGTH
-            || !preg_match('/^' . self::ATTRIBUTE_NAME_RGXP . '$/', $name)
+        if (
+            \strlen($name) > self::MAX_ATTRIBUTE_NAME_LENGTH
+            || !preg_match('/^'.self::ATTRIBUTE_NAME_RGXP.'$/', $name)
         ) {
             throw InvalidConfigurationException::becauseInvalidAttributeName($name);
         }
@@ -422,7 +437,7 @@ final class Configuration
         return $clone;
     }
 
-    public function withLogger(?LoggerInterface $logger): self
+    public function withLogger(LoggerInterface|null $logger): self
     {
         $clone = clone $this;
         $clone->logger = $logger;
@@ -466,6 +481,15 @@ final class Configuration
     {
         $clone = clone $this;
         $clone->processName = $processName;
+
+        return $clone;
+    }
+
+    public function withQueryCache(CacheItemPoolInterface|null $queryCache): self
+    {
+        $clone = clone $this;
+        $clone->queryCache = $queryCache;
+
         return $clone;
     }
 
@@ -483,7 +507,7 @@ final class Configuration
                 throw new InvalidConfigurationException('Ranking rules must be an array of strings.');
             }
             if (!\in_array($v, array_keys(Relevance::RANKERS), true)) {
-                throw new InvalidConfigurationException('Unknown ranking rule: ' . $v);
+                throw new InvalidConfigurationException('Unknown ranking rule: '.$v);
             }
         }
 
@@ -551,6 +575,7 @@ final class Configuration
      * Set the probability (0-100) of running vacuum on the SQLite database during indexing.
      *
      * @throws InvalidConfigurationException If the probability is not between 0 and 100
+     *
      * @internal
      */
     public function withVacuumProbability(int $probability): self

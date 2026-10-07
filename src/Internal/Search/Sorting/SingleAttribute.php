@@ -6,16 +6,20 @@ namespace Loupe\Loupe\Internal\Search\Sorting;
 
 use Loupe\Loupe\Internal\Engine;
 use Loupe\Loupe\Internal\Index\IndexInfo;
+use Loupe\Loupe\Internal\Search\AbstractQueryParameters;
 use Loupe\Loupe\Internal\Search\Searcher;
 
 class SingleAttribute extends AbstractSorter
 {
     public function __construct(
-        private string $attributeName,
-        private Direction $direction
+        private readonly string $attributeName,
+        private readonly Direction $direction,
     ) {
     }
 
+    /**
+     * @param Searcher<AbstractQueryParameters> $searcher
+     */
     public function apply(Searcher $searcher, Engine $engine): void
     {
         $attribute = $this->attributeName;
@@ -29,38 +33,18 @@ class SingleAttribute extends AbstractSorter
             $attribute = '_user_id';
         }
 
-        $qb = $engine->getConnection()->createQueryBuilder();
-        $qb
-            ->select(
-                $engine->getIndexInfo()->getAliasForTable(IndexInfo::TABLE_NAME_DOCUMENTS) . '._id AS document_id',
-                $engine->getIndexInfo()->getAliasForTable(IndexInfo::TABLE_NAME_DOCUMENTS) . '.' . $attribute . ' AS sort_order'
-            )
-            ->from(
-                IndexInfo::TABLE_NAME_DOCUMENTS,
-                $engine->getIndexInfo()->getAliasForTable(IndexInfo::TABLE_NAME_DOCUMENTS)
-            )
-            ->innerJoin(
-                $engine->getIndexInfo()->getAliasForTable(IndexInfo::TABLE_NAME_DOCUMENTS),
-                Searcher::CTE_MATCHES,
-                Searcher::CTE_MATCHES,
-                \sprintf(
-                    '%s.document_id = %s._id',
-                    Searcher::CTE_MATCHES,
-                    $engine->getIndexInfo()->getAliasForTable(
-                        IndexInfo::TABLE_NAME_DOCUMENTS
-                    )
-                )
-            )
-            ->groupBy('document_id');
-
-        $cteName = 'order_' . $this->attributeName;
-
-        $this->addAndOrderByCte($searcher, $engine, $this->direction, $cteName, $qb);
+        $documentsAlias = $engine->getIndexInfo()->getAliasForTable(IndexInfo::TABLE_NAME_DOCUMENTS);
+        $this->addOrderByExpression($searcher, $engine, $this->direction, $documentsAlias.'.'.$attribute);
     }
 
     public static function fromString(string $value, Engine $engine, Direction $direction): self
     {
         return new self($value, $direction);
+    }
+
+    public function requiresFullResultCount(AbstractQueryParameters $queryParameters): bool
+    {
+        return false;
     }
 
     public static function supports(string $value, Engine $engine): bool

@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Loupe\Loupe;
 
 use Loupe\Loupe\Exception\IndexException;
+use Loupe\Loupe\Indexing\DocumentSourceInterface;
 use Loupe\Loupe\Internal\Engine;
 
 final class Loupe
 {
-    public function __construct(
-        private Engine $engine
-    ) {
+    public function __construct(private readonly Engine $engine)
+    {
     }
 
     /**
@@ -23,9 +23,9 @@ final class Loupe
     }
 
     /**
-     * @param array<int, array<string, mixed>> $documents
+     * @param array<int, array<string, mixed>>|DocumentSourceInterface $documents
      */
-    public function addDocuments(array $documents): void
+    public function addDocuments(DocumentSourceInterface|array $documents): void
     {
         $this->engine->addDocuments($documents);
     }
@@ -69,7 +69,7 @@ final class Loupe
     /**
      * @return array<string, mixed>|null
      */
-    public function getDocument(int|string $identifier): ?array
+    public function getDocument(int|string $identifier): array|null
     {
         return $this->engine->getDocument($identifier);
     }
